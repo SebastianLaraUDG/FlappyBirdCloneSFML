@@ -3,8 +3,14 @@
 #include "imgui-SFML.h"
 #include <cmath>
 #include <memory>
-
+#include <random>
+#include <type_traits>
 #include <iostream>
+
+/*
+* Known "issues":
+* // NOTE: Unfortunately because of the height of the pipes asset, the Top obstacle lowest point is -140, so in gameplay it doesnt look so random and gives the illusion that the obstacles are usually in the top zone of the screen.
+*/
 
 /*
 * Flappy bird:
@@ -27,6 +33,37 @@ using f32 = float;
 using i32 = int;
 using u32 = unsigned int;
 
+// @return A random value in the range [min, max].
+template <typename T>
+T Random(T min, T max)
+{
+	assert(min < max && "Random: min must be less than max.");
+
+	static std::random_device rd;
+	static std::mt19937_64 gen(rd());
+
+	static_assert(
+		std::is_integral_v<T> || std::is_floating_point_v<T>,
+		"T must be an integer or floating-point type"
+		);
+
+	if constexpr (std::is_integral_v<T>) {
+		std::uniform_int_distribution<T> dist(min, max);
+		return dist(gen);
+	}
+	else {
+		// uniform_real_distribution es [min, max),
+		// así que movemos max al siguiente valor representable.
+		T inclusiveMax = std::nextafter(
+			max,
+			std::numeric_limits<T>::infinity()
+		);
+
+		std::uniform_real_distribution<T> dist(min, inclusiveMax);
+		return dist(gen);
+	}
+}
+
 namespace RenderOrder
 {
 	inline constexpr u32 TOP_UI = 1U;
@@ -47,7 +84,7 @@ public:
 	// Custom render implementation. World renders all entities
 	// based on the sprite every instance of Entity has, but in
 	// some cases an Entity needs a seperate render method.
-	virtual void Render(sf::RenderWindow& window) const {}
+	virtual void Render(sf::RenderWindow& window) const {} // TODO: remove
 
 	void CenterOrigin()
 	{
@@ -57,6 +94,8 @@ public:
 	
 	inline sf::Sprite& GetSprite() { return sprite_; }
 	inline u32 GetRenderOrder() const { return renderOrder_; }
+	inline auto GetHalfWidth() const { return sprite_.getLocalBounds().size.x / 2; }
+	inline auto GetHalfHeight() const { return sprite_.getLocalBounds().size.y / 2; }
 protected:
 	sf::Sprite sprite_;
 private:
@@ -381,7 +420,9 @@ namespace FlappyBirdGame
 		static constexpr f32 FLAP_IMPULSE = -350.f;
 
 		// Sprites.
+	public:
 		static constexpr sf::Vector2u SPRITE_SIZE = { 34u,24u }; // I'm not sure why but the sprite size is 34 px width (in the spritesheet), but original sprites are 32 px.
+	private:
 		static constexpr std::string_view SPRITE_SHEET_PATH = "Assets/spritesheetYellow.png";
 
 		// Animation.
@@ -454,8 +495,10 @@ namespace FlappyBirdGame
 	class ObstaclePair : public Entity
 	{
 	public:
-
-		sf::Vector2f originPos = sf::Vector2f();
+		static constexpr u32 MAX_VERTICAL_GAP = FlappyBirdGame::Bird::SPRITE_SIZE.y * 5.5f; // Vertical gap between Top and Bottom is 5.5 times the height of the bird. (This value was found analyzing the flappy bird game online.)
+		static constexpr u32 MIN_VERTICAL_GAP = FlappyBirdGame::Bird::SPRITE_SIZE.y * 4; // Same as above.
+		static constexpr u32 TUBE_TIP_HEIGHT = 24; // ...
+		sf::Vector2f originPos = sf::Vector2f(240, 300); // Center of the screen for testing purposes. TODO:
 		sf::Vector2f topOffset = sf::Vector2f();
 		sf::Vector2f bottomOfffset = sf::Vector2f();
 
@@ -463,13 +506,15 @@ namespace FlappyBirdGame
 		{
 			// sprite_.setColor(sf::Color::Transparent); 
 			sprite_.setPosition({ 300.f, 200.f });
-			sprite_.setScale({ 0.5f,0.5f }); // DESCALE TO make a smaller pivot and find center more easily.
+		//	sprite_.setScale({ 0.5f,0.5f }); // DESCALE TO make a smaller pivot and find center more easily.
 
 			const auto centerOrigin = sf::Vector2f(top_.getLocalBounds().size.x / 2, top_.getLocalBounds().size.y / 2);
 			top_.setOrigin(centerOrigin); // Both sprites use the same texture.
 			bottom_.setOrigin(centerOrigin);
 			
 			top_.setRotation(sf::degrees(180.f));
+
+			RandomizeSpritesY();
 		}
 
 		void Update(const f32 deltaTime) override
@@ -478,18 +523,59 @@ namespace FlappyBirdGame
 			top_.setPosition(originPos + topOffset);
 			bottom_.setPosition(originPos + bottomOfffset);
 		}
-
-		void Render(sf::RenderWindow& window) const override
+		
+		void Render(sf::RenderWindow& window) const override // TODO: remove
 		{
 			window.draw(top_);
 			window.draw(bottom_);
+		}
+
+		void PlaceBottomRandomY()
+		{
+			// SFML y coords... inverted...
+			constexpr auto UPPER_POS = 110.f;
+			constexpr auto LOWER_POS = 405.f;
+			bottomOfffset.y = Random(UPPER_POS, LOWER_POS);
+		}
+		void PlaceTopRandomY()
+		{
+			// SFML y coords... inverted...
+			constexpr auto UPPER_POS = -433.f;
+			constexpr auto LOWER_POS = -140.f;
+			topOffset.y = Random(UPPER_POS, LOWER_POS);
+		}
+
+		void RandomizeSpritesY()
+		{
+			do
+			{
+				PlaceBottomRandomY();
+				PlaceTopRandomY();
+			} while (!PipesInReasonableDistance());
+		}
+
+		// NOTE: Unfortunately because of the height of the pipes asset, the Top obstacle lowest point is -140, so in gameplay it doesnt look so random and gives the illusion that the obstacles are usually in the top zone of the screen.
+		bool PipesInReasonableDistance() const
+		{
+			// Max gap distance is around 4 to 5.5 times the height of the bird.
+			constexpr auto MIN_Y_GAP = FlappyBirdGame::Bird::SPRITE_SIZE.y * 4;
+			constexpr auto MAX_Y_GAP = FlappyBirdGame::Bird::SPRITE_SIZE.y * 5.5f;
+			const f32 tubeHalfHeight = bottom_.getLocalBounds().size.y / 2.f;
+
+			// Offsets, not sprite positions: positions only refresh in Update().
+			const f32 topTipY = topOffset.y + tubeHalfHeight;          // lowest point of the top tube
+			const f32 bottomTipY = bottomOfffset.y - tubeHalfHeight;   // highest point of the bottom tube
+
+			const f32 gap = bottomTipY - topTipY;
+			
+			return gap >= MIN_Y_GAP && gap <= MAX_Y_GAP;
 		}
 
 		inline sf::Sprite& GetTopSprite() { return top_; }
 		inline sf::Sprite& GetBottomSprite() { return bottom_; }
 
 	private:
-		// For faster iteration.
+		// For faster iteration. TODO: remove.
 		static sf::Sprite MakeTempOrigin()
 		{
 			static sf::Texture texture = [] {
@@ -510,7 +596,6 @@ namespace FlappyBirdGame
 				sf::Texture tex;
 				if (!tex.loadFromFile(TEXTURE_PATH))
 					throw std::runtime_error("Could not load OBSTACLE texture.");
-				tex.setRepeated(true);
 				return tex;
 				}();
 			return sf::Sprite(texture);
@@ -576,6 +661,12 @@ namespace FlappyBirdGame
 			ImGui::DragFloat2("obstacle origin pos:", &obstTest1_->originPos.x, 0.1f);
 			ImGui::DragFloat2("top offset:", &obstTest1_->topOffset.x, 0.1f);
 			ImGui::DragFloat2("bottom offset:", &obstTest1_->bottomOfffset.x, 0.1f);
+			
+			if (ImGui::Button("Randomize Y", ImGui::CalcTextSize("pivot new random Y")) && obstTest1_)
+			{
+				obstTest1_->RandomizeSpritesY();
+				std::cout << "clicked2" << std::endl;
+			}
 		}
 
 	//	void CheckCollisions(); // TODO:
