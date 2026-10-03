@@ -81,10 +81,6 @@ public:
 
 	virtual void Update(const f32 deltaTime) = 0;
 
-	// Custom render implementation. World renders all entities
-	// based on the sprite every instance of Entity has, but in
-	// some cases an Entity needs a seperate render method.
-	virtual void Render(sf::RenderWindow& window) const {} // TODO: remove
 
 	void CenterOrigin()
 	{
@@ -524,11 +520,6 @@ namespace FlappyBirdGame
 			bottom_.setPosition(originPos + bottomOfffset);
 		}
 		
-		void Render(sf::RenderWindow& window) const override // TODO: remove
-		{
-			window.draw(top_);
-			window.draw(bottom_);
-		}
 
 		void PlaceBottomRandomY()
 		{
