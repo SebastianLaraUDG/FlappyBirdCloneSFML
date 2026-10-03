@@ -483,7 +483,7 @@ namespace FlappyBirdGame
 		// All these values were found through iteration using imgui.
 		static constexpr i32 VISIBLE_TEXTURE_WIDTH = 495; 
 		static constexpr f32 FLOOR_Y = 626.f;             
-		static constexpr f32 SPEED = -88.f;               
+		static constexpr f32 SPEED = -120.f;//-88.f;               
 		static constexpr const char* FLOOR_TEXTURE_PATH = "Assets/base.png";
 	};
 
@@ -494,14 +494,15 @@ namespace FlappyBirdGame
 		static constexpr u32 MAX_VERTICAL_GAP = FlappyBirdGame::Bird::SPRITE_SIZE.y * 5.5f; // Vertical gap between Top and Bottom is 5.5 times the height of the bird. (This value was found analyzing the flappy bird game online.)
 		static constexpr u32 MIN_VERTICAL_GAP = FlappyBirdGame::Bird::SPRITE_SIZE.y * 4; // Same as above.
 		static constexpr u32 TUBE_TIP_HEIGHT = 24; // ...
-		sf::Vector2f originPos = sf::Vector2f(240, 300); // Center of the screen for testing purposes. TODO:
+
+		static constexpr f32 speedX = -120.f;
 		sf::Vector2f topOffset = sf::Vector2f();
 		sf::Vector2f bottomOfffset = sf::Vector2f();
 
-		ObstaclePair() : Entity(MakeTempOrigin(), RenderOrder::OBSTACLES), top_(MakeSprite()), bottom_(MakeSprite())
+		explicit ObstaclePair(const sf::Vector2f spawnPos) : Entity(MakeTempOrigin(), RenderOrder::OBSTACLES), top_(MakeSprite()), bottom_(MakeSprite())
 		{
 			// sprite_.setColor(sf::Color::Transparent); 
-			sprite_.setPosition({ 300.f, 200.f });
+			sprite_.setPosition(spawnPos);
 		//	sprite_.setScale({ 0.5f,0.5f }); // DESCALE TO make a smaller pivot and find center more easily.
 
 			const auto centerOrigin = sf::Vector2f(top_.getLocalBounds().size.x / 2, top_.getLocalBounds().size.y / 2);
@@ -515,9 +516,10 @@ namespace FlappyBirdGame
 
 		void Update(const f32 deltaTime) override
 		{
-			sprite_.setPosition(originPos);
-			top_.setPosition(originPos + topOffset);
-			bottom_.setPosition(originPos + bottomOfffset);
+			const auto currentPos = sprite_.getPosition();
+			sprite_.move({ speedX * deltaTime, 0.f });
+			top_.setPosition(currentPos + topOffset);
+			bottom_.setPosition(currentPos + bottomOfffset);
 		}
 		
 
@@ -623,7 +625,10 @@ namespace FlappyBirdGame
 			floor_ = Add<Floor>();
 			
 			// Create obstacles.
-			obstTest1_ = Add<ObstaclePair>();
+			sf::Vector2f windowBorder = sf::Vector2f(window_.getSize()) / 2.f;
+			windowBorder.x = 480.f;
+			obstTest1_ = Add<ObstaclePair>(windowBorder);			
+
 			
 			// Add sprites to draw order pipeline.
 			AddAdditionalSprite(&obstTest1_->GetTopSprite(), FlappyBirdGame::RenderOrder::OBSTACLES);
@@ -649,7 +654,6 @@ namespace FlappyBirdGame
 
 		void OnImGuiUpdateValues() override
 		{
-			ImGui::DragFloat2("obstacle origin pos:", &obstTest1_->originPos.x, 0.1f);
 			ImGui::DragFloat2("top offset:", &obstTest1_->topOffset.x, 0.1f);
 			ImGui::DragFloat2("bottom offset:", &obstTest1_->bottomOfffset.x, 0.1f);
 			
