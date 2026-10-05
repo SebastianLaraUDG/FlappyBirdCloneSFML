@@ -389,22 +389,12 @@ namespace FlappyBirdGame
 			// Up->middle->down->middle->up. Loop this.
 			static i32 frame = 0;
 			static i32 direction = 1; // 1 means go up, -1 means go down.
-			static sf::IntRect section;
-			section.size = { SPRITE_SIZE.x, SPRITE_SIZE.y};
-
-			switch (frame)
-			{
-			case 0:
-				section.position = { 0,0 };
-				break;
-			case 1:
-				section.position = { SPRITE_SIZE.x, 0 };
-				break;
-			case 2:
-				section.position = { SPRITE_SIZE.x * 2, 0 };
-				break;
-			}
-			sprite_.setTextureRect(section);
+			constexpr sf::Vector2i SPRITE_SIZE_INT = { static_cast<i32>(SPRITE_SIZE.x), static_cast<i32>(SPRITE_SIZE.y) };
+			sprite_.setTextureRect(sf::IntRect(
+				{ SPRITE_SIZE_INT.x * frame, 0 },
+				SPRITE_SIZE_INT // Typed this way instead of only SPRITE_SIZE because it would not compile due to type conversion failure.
+			));
+			
 			
 			frame += direction;
 			// Exceeds limits? reverse state direction.
