@@ -5,6 +5,8 @@
 #include <memory>
 #include <random>
 #include <type_traits>
+#include <vector>
+#include <array>
 #include <iostream>
 
 /*
@@ -631,9 +633,12 @@ namespace FlappyBirdGame
 			floor_ = Add<Floor>();
 			
 			// Create obstacles.
-			sf::Vector2f windowBorder = sf::Vector2f(window_.getSize()) / 2.f;
-			windowBorder.x = 480.f;
-			obstTest1_ = Add<ObstaclePair>(windowBorder);			
+			sf::Vector2f windowBorder = sf::Vector2f(window_.getSize()) / 2.f; // Right border, center of the window.
+			windowBorder.x = window.getSize().x;
+			obstTest1_ = Add<ObstaclePair>(windowBorder);
+			obstaclePairs_[0] = obstTest1_;
+			obstaclePairs_[1] = nullptr;
+			obstaclePairs_[2] = nullptr;
 
 			
 			// Add sprites to draw order pipeline.
@@ -645,6 +650,24 @@ namespace FlappyBirdGame
 		{
 			::World::Update(deltaTime);
 			// TODO: check collisions.
+
+
+			// Score system. TODO: should be placed in a function.
+			for (const auto& obstPair : obstaclePairs_)
+			{
+				if (!obstPair) continue;
+
+				if (obstPair->GetSprite().getPosition().x < bird_->GetSprite().getPosition().x && !scored_)
+				{
+					score_++;
+					scored_ = true;
+					std::cout << "SCORE: " << score_ << std::endl;
+				}
+				if (obstPair->GetSprite().getPosition().x > window_.getSize().x / 2)
+				{
+					scored_ = false;
+				}
+			}
 		}
 
 		void HandleInput(const std::optional<sf::Event>& event) override
@@ -672,10 +695,13 @@ namespace FlappyBirdGame
 
 	//	void CheckCollisions(); // TODO:
 	private:
+		static constexpr i32 NUM_OBSTACLE_PAIRS = 3;
 		Bird* bird_;
 		Floor* floor_;
 		ObstaclePair* obstTest1_;
+		std::array<ObstaclePair*, NUM_OBSTACLE_PAIRS> obstaclePairs_ = {};
 		u32 score_ = 0;
+		bool scored_ = false;// temp TODO:
 	};
 }
 
