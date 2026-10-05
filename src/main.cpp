@@ -97,7 +97,7 @@ public:
 protected:
 	sf::Sprite sprite_;
 private:
-	u32 renderOrder_;
+	u32 renderOrder_; // TODO: When checking memory layout of classes that derive from Entity, it seems that after this variable there is a 4-byte padding, so the next variable will be aligned to 8 bytes. This is not a problem for this project, but it is something to keep in mind for future projects.
 };
 
 class World
@@ -274,7 +274,7 @@ public:
 		}
 	}
 	
-	World* GetWorld() { return world_.get(); }
+	inline World* GetWorld() { return world_.get(); }
 
 protected:
 	// Override this to draw imgui elements. Begin is called before and IMGUI::END after, so it's safe.
@@ -300,7 +300,6 @@ namespace FlappyBirdGame
 	class Bird : public Entity
 	{
 	public:
-		bool bChangesVerticalVelocity = true;
 		
 		Bird() : Entity(MakeSprite())
 		{
@@ -406,9 +405,12 @@ namespace FlappyBirdGame
 			// LOG std::cout << "Updated BIRD animation" << std::endl;
 		}
 
+	private:
 		f32 velY_ = 0.f;
 		f32 rotation_ = 0.f;
 		f32 rotationSpeed_ = 2.f;
+	public:
+		bool bChangesVerticalVelocity = true;
 
 		// CONSTANTS
 
@@ -734,7 +736,6 @@ namespace FlappyBirdGame
 			return sf::FloatRect(center - size / 2.f, size);
 		}
 
-		// Sirve para el tubo de arriba y el de abajo. Inset = píxeles recortados por lado.
 		sf::FloatRect GetPipeHitbox(sf::Sprite& pipeSprite) const
 		{
 			const sf::FloatRect bounds = pipeSprite.getGlobalBounds();
@@ -747,18 +748,18 @@ namespace FlappyBirdGame
 
 		void CheckCollisions()
 		{
-			if (bGameOver) return; // Así el log sale una sola vez.
+			if (bGameOver) return; // Log only once.
 
 			const sf::FloatRect birdBox = GetBirdHitbox();
 			
-			// Suelo.
+			// Ground.
 			if (birdBox.findIntersection(floor_->GetSprite().getGlobalBounds()))
 			{
 				OnBirdHit("floor");
 				return;
 			}
 
-			// Obstáculos (salta los nullptr, no cambia cuando agregues los otros 2 pares).
+			// Obstacles.
 			for (auto* pair : obstaclePairs_)
 			{
 				if (!pair) continue;
@@ -777,9 +778,7 @@ namespace FlappyBirdGame
 		Bird* bird_;
 		Floor* floor_;
 		std::array<ObstaclePair*, NUM_OBSTACLE_PAIRS> obstaclePairs_ = {};
-		u32 score_ = 0;
-		bool scored_ = false;// temp TODO:
-		bool bGameOver = false;
+		
 		struct HitboxSettings
 		{
 			bool show = true;
@@ -792,9 +791,9 @@ namespace FlappyBirdGame
 		{
 			sf::RectangleShape shape(rect.size);
 			shape.setPosition(rect.position);
-			shape.setFillColor(sf::Color(color.r, color.g, color.b, 40));
+			shape.setFillColor(sf::Color(color.r, color.g, color.b, 40)); // Semi-transparent fill.
 			shape.setOutlineColor(color);
-			shape.setOutlineThickness(-1.f); // Negativo: el contorno queda hacia adentro y no agranda la caja.
+			shape.setOutlineThickness(-1.f);
 			window.draw(shape);
 		}
 
@@ -803,8 +802,11 @@ namespace FlappyBirdGame
 			bGameOver = true;
 			std::cout << "COLLISION with " << what << " | final score: " << score_ << std::endl;
 		}
+		u32 score_ = 0;
+		bool scored_ = false;// temp TODO:
+		bool bGameOver = false;
 	};
-}
+} // namespace FlappyBirdGame
 
 
 int main()
