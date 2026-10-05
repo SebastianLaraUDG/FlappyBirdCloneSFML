@@ -520,6 +520,12 @@ namespace FlappyBirdGame
 			sprite_.move({ speedX * deltaTime, 0.f });
 			top_.setPosition(currentPos + topOffset);
 			bottom_.setPosition(currentPos + bottomOfffset);
+
+			if (sprite_.getPosition().x + sprite_.getLocalBounds().size.x < 0)
+			{
+				sprite_.setPosition({ 480.f, sprite_.getPosition().y });
+				RandomizeSpritesY();
+			}
 		}
 		
 
