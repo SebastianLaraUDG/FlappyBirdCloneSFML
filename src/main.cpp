@@ -300,7 +300,7 @@ namespace FlappyBirdGame
 	class Bird : public Entity
 	{
 	public:
-		bool bAppliesGravity = true;
+		bool bChangesVerticalVelocity = true;
 		
 		Bird() : Entity(MakeSprite())
 		{
@@ -339,14 +339,14 @@ namespace FlappyBirdGame
 			// Update position.
 
 			const auto oldY = sprite_.getPosition().y;
-			const auto newY = oldY + velY_ * deltaTime;
-			if (bAppliesGravity) // TODO: temporary solution to avoid bird falling. this is to improve the debug of the obstacles.
-			{
-				sprite_.setPosition({
-					sprite_.getPosition().x,
-					newY
-					});
-			}
+			const auto newY = oldY + velY_ * deltaTime * bChangesVerticalVelocity;
+			// TODO: temporary solution to avoid bird falling. this is to improve the debug of the obstacles.
+
+			sprite_.setPosition({
+				sprite_.getPosition().x,
+				newY
+				});
+
 		}
 
 		void Flap()
@@ -698,7 +698,7 @@ namespace FlappyBirdGame
 				obstaclePairs_[0]->RandomizeSpritesY();
 				std::cout << "clicked on button" << std::endl;
 			}
-			ImGui::Checkbox("Bird applies gravity", &bird_->bAppliesGravity);
+			ImGui::Checkbox("Bird Vertical Velocity can change", &bird_->bChangesVerticalVelocity);
 
 			ImGui::Separator();
 			ImGui::Text("Hitboxes");
