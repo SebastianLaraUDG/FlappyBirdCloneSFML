@@ -141,12 +141,12 @@ public:
 	// small and simple as possible.
 #pragma region RENDERING
 
+#ifdef _DEBUG
 	virtual void RenderDebug(sf::RenderWindow& window) const
 	{
-#if _DEBUG
-
-#endif
+		//
 	}
+#endif
 
 	// Render everything.
 	void RenderAll(sf::RenderWindow& window) const
@@ -204,7 +204,6 @@ public:
 	template<typename... Args>
 	explicit App(sf::RenderWindow& window, Args&&... worldArgs) : window_(window)
 	{
-		static_assert(std::is_base_of_v<World, TWorld>, "TWorld must derive from World");
 		world_ = CreateWorld(std::forward<Args>(worldArgs)...);
 
 		if (!ImGui::SFML::Init(window))
@@ -355,7 +354,6 @@ namespace FlappyBirdGame
 			velY_ = FLAP_IMPULSE;
 		}
 
-		f32 GetVelY() const noexcept { return velY_; }
 
 	private:
 		// Bird uses spritesheet;
@@ -442,7 +440,7 @@ namespace FlappyBirdGame
 	class Floor : public Entity
 	{
 	public:
-		explicit Floor() : Entity(MakeSprite(), RenderOrder::FLOOR)
+		Floor() : Entity(MakeSprite(), RenderOrder::FLOOR)
 		{
 			// Define the final size of the sprite (495 x 112).
 			// World will use this to center the origin.
@@ -496,7 +494,7 @@ namespace FlappyBirdGame
 		// All these values were found through iteration using imgui.
 		static constexpr i32 VISIBLE_TEXTURE_WIDTH = 495; 
 		static constexpr f32 FLOOR_Y = 626.f;             
-		static constexpr f32 SPEED = -120.f;//-88.f;               
+		static constexpr f32 SPEED = -120.f;
 		static constexpr const char* FLOOR_TEXTURE_PATH = "Assets/base.png";
 	};
 
@@ -504,13 +502,10 @@ namespace FlappyBirdGame
 	class ObstaclePair : public Entity
 	{
 	public:
-		static constexpr u32 MAX_VERTICAL_GAP = FlappyBirdGame::Bird::SPRITE_SIZE.y * 5.5f; // Vertical gap between Top and Bottom is 5.5 times the height of the bird. (This value was found analyzing the flappy bird game online.)
-		static constexpr u32 MIN_VERTICAL_GAP = FlappyBirdGame::Bird::SPRITE_SIZE.y * 4; // Same as above.
-		static constexpr u32 TUBE_TIP_HEIGHT = 24; // ...
 
 		static constexpr f32 speedX = -120.f;
 		sf::Vector2f topOffset = sf::Vector2f();
-		sf::Vector2f bottomOfffset = sf::Vector2f();
+		sf::Vector2f bottomOffset = sf::Vector2f();
 
 		explicit ObstaclePair(const sf::Vector2f spawnPos) : Entity(MakeTempOrigin(), RenderOrder::OBSTACLES), top_(MakeSprite()), bottom_(MakeSprite())
 		{
@@ -532,7 +527,7 @@ namespace FlappyBirdGame
 			const auto currentPos = sprite_.getPosition();
 			sprite_.move({ speedX * deltaTime, 0.f });
 			top_.setPosition(currentPos + topOffset);
-			bottom_.setPosition(currentPos + bottomOfffset);
+			bottom_.setPosition(currentPos + bottomOffset);
 
 			if (sprite_.getPosition().x + sprite_.getLocalBounds().size.x < 0)
 			{
@@ -547,7 +542,7 @@ namespace FlappyBirdGame
 			// SFML y coords... inverted...
 			constexpr auto UPPER_POS = 110.f;
 			constexpr auto LOWER_POS = 405.f;
-			bottomOfffset.y = Random(UPPER_POS, LOWER_POS);
+			bottomOffset.y = Random(UPPER_POS, LOWER_POS);
 		}
 		void PlaceTopRandomY()
 		{
@@ -576,7 +571,7 @@ namespace FlappyBirdGame
 
 			// Offsets, not sprite positions: positions only refresh in Update().
 			const f32 topTipY = topOffset.y + tubeHalfHeight;          // lowest point of the top tube
-			const f32 bottomTipY = bottomOfffset.y - tubeHalfHeight;   // highest point of the bottom tube
+			const f32 bottomTipY = bottomOffset.y - tubeHalfHeight;   // highest point of the bottom tube
 
 			const f32 gap = bottomTipY - topTipY;
 			
@@ -618,7 +613,6 @@ namespace FlappyBirdGame
 
 
 		static constexpr const char* TEXTURE_PATH = "Assets/pipe-green.png";
-		static constexpr sf::Vector2f TEXTURE_SIZE = { 52.f, 320.f };
 	};
 
 	class World : public ::World
@@ -630,31 +624,33 @@ namespace FlappyBirdGame
 
 
 			entities_.reserve(static_cast<size_t>(8)); // Bird, floor, and 3 pairs of obstacles.
-			
+
 			// Create bird.
 			bird_ = Add<Bird>();
 			assert(bird_);
 			assert(entities_[0].get() == bird_);
 
 			bird_->GetSprite().setPosition(
-				{static_cast<f32>(window_.getSize().x) / 3, static_cast<f32>(window.getSize().y) / 2 }
+				{ static_cast<f32>(window_.getSize().x) / 3, static_cast<f32>(window.getSize().y) / 2 }
 			);
 
 			// Create Floor.
 			floor_ = Add<Floor>();
-			
+
 			// Create obstacles.
 			sf::Vector2f windowBorder = sf::Vector2f(window_.getSize()) / 2.f; // Right border, center of the window.
 			windowBorder.x = window.getSize().x;
-			obstTest1_ = Add<ObstaclePair>(windowBorder);
-			obstaclePairs_[0] = obstTest1_;
-			obstaclePairs_[1] = nullptr;
-			obstaclePairs_[2] = nullptr;
+			const f32 OBSTACLE_PAIR_SPACING = windowBorder.x / NUM_OBSTACLE_PAIRS; // Spacing between each pair of obstacles.
+			for (i32 i = 0; i < NUM_OBSTACLE_PAIRS; i++)
+			{
+				const auto PosWithSpacing = windowBorder + sf::Vector2f(i * OBSTACLE_PAIR_SPACING, 0.f);
+				obstaclePairs_[i] = Add<ObstaclePair>(PosWithSpacing);
 
-			
-			// Add sprites to draw order pipeline.
-			AddAdditionalSprite(&obstTest1_->GetTopSprite(), FlappyBirdGame::RenderOrder::OBSTACLES);
-			AddAdditionalSprite(&obstTest1_->GetBottomSprite(), FlappyBirdGame::RenderOrder::OBSTACLES);
+				// Add sprites to draw order pipeline.
+				AddAdditionalSprite(&obstaclePairs_[i]->GetTopSprite(), FlappyBirdGame::RenderOrder::OBSTACLES);
+				AddAdditionalSprite(&obstaclePairs_[i]->GetBottomSprite(), FlappyBirdGame::RenderOrder::OBSTACLES);
+			}
+
 		}
 
 		void Update(const f32 deltaTime) override
@@ -694,13 +690,13 @@ namespace FlappyBirdGame
 
 		void OnImGuiUpdateValues() override
 		{
-			ImGui::DragFloat2("top offset:", &obstTest1_->topOffset.x, 0.1f);
-			ImGui::DragFloat2("bottom offset:", &obstTest1_->bottomOfffset.x, 0.1f);
 			
-			if (ImGui::Button("Randomize Y", ImGui::CalcTextSize("pivot new random Y")) && obstTest1_)
+			ImGui::DragFloat2("bottom offset:", &obstaclePairs_[0]->bottomOffset.x, 0.1f);
+			
+			if (ImGui::Button("Randomize Y", ImGui::CalcTextSize("pivot new random Y")) && &obstaclePairs_[0])
 			{
-				obstTest1_->RandomizeSpritesY();
-				std::cout << "clicked2" << std::endl;
+				obstaclePairs_[0]->RandomizeSpritesY();
+				std::cout << "clicked on button" << std::endl;
 			}
 			ImGui::Checkbox("Bird applies gravity", &bird_->bAppliesGravity);
 
@@ -755,8 +751,6 @@ namespace FlappyBirdGame
 			const sf::Vector2f size = {
 				bounds.size.x,
 				bounds.size.y
-				// std::max(0.f, bounds.size.x),
-				// std::max(0.f, bounds.size.y)
 			};
 			return sf::FloatRect(bounds.position, size);
 		}
@@ -792,7 +786,6 @@ namespace FlappyBirdGame
 		static constexpr i32 NUM_OBSTACLE_PAIRS = 3;
 		Bird* bird_;
 		Floor* floor_;
-		ObstaclePair* obstTest1_;
 		std::array<ObstaclePair*, NUM_OBSTACLE_PAIRS> obstaclePairs_ = {};
 		u32 score_ = 0;
 		bool scored_ = false;// temp TODO:
