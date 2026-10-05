@@ -141,6 +141,13 @@ public:
 	// small and simple as possible.
 #pragma region RENDERING
 
+	virtual void RenderDebug(sf::RenderWindow& window) const
+	{
+#if _DEBUG
+
+#endif
+	}
+
 	// Render everything.
 	void RenderAll(sf::RenderWindow& window) const
 	{
@@ -261,6 +268,7 @@ public:
 			// Draw.
 			
 			world_->RenderAll(window_);
+			world_->RenderDebug(window_);
 			ImGui::SFML::Render(window_);
 
 			window_.display();
@@ -293,7 +301,7 @@ namespace FlappyBirdGame
 	class Bird : public Entity
 	{
 	public:
-		
+		bool bAppliesGravity = true;
 		
 		Bird() : Entity(MakeSprite())
 		{
@@ -333,10 +341,13 @@ namespace FlappyBirdGame
 
 			const auto oldY = sprite_.getPosition().y;
 			const auto newY = oldY + velY_ * deltaTime;
-			sprite_.setPosition({
+			if (bAppliesGravity) // TODO: temporary solution to avoid bird falling. this is to improve the debug of the obstacles.
+			{
+				sprite_.setPosition({
 					sprite_.getPosition().x,
 					newY
-			});
+					});
+			}
 		}
 
 		void Flap()
@@ -649,7 +660,7 @@ namespace FlappyBirdGame
 		void Update(const f32 deltaTime) override
 		{
 			::World::Update(deltaTime);
-			// TODO: check collisions.
+			CheckCollisions();
 
 
 			// Score system. TODO: should be placed in a function.
@@ -691,9 +702,92 @@ namespace FlappyBirdGame
 				obstTest1_->RandomizeSpritesY();
 				std::cout << "clicked2" << std::endl;
 			}
+			ImGui::Checkbox("Bird applies gravity", &bird_->bAppliesGravity);
+
+			ImGui::Separator();
+			ImGui::Text("Hitboxes");
+			ImGui::Checkbox("Show hitboxes", &hitbox_.show);
+			ImGui::Checkbox("Show sprite bounds", &hitbox_.showSpriteBounds);
+			ImGui::DragFloat2("Bird scale", &hitbox_.birdScale.x, 0.01f, 0.1f, 2.f);
 		}
 
-	//	void CheckCollisions(); // TODO:
+		void RenderDebug(sf::RenderWindow& window) const override
+		{
+			if (!hitbox_.show) return;
+
+			const sf::Color spriteBoundsColor(150, 150, 150);
+
+			// Caja real de los sprites, para comparar contra el hitbox.
+			if (hitbox_.showSpriteBounds)
+			{
+				DrawDebugRect(window, bird_->GetSprite().getGlobalBounds(), spriteBoundsColor);
+				for (auto* pair : obstaclePairs_)
+				{
+					if (!pair) continue;
+					DrawDebugRect(window, pair->GetTopSprite().getGlobalBounds(), spriteBoundsColor);
+					DrawDebugRect(window, pair->GetBottomSprite().getGlobalBounds(), spriteBoundsColor);
+				}
+			}
+
+			DrawDebugRect(window, GetBirdHitbox(), sf::Color::Green);
+			for (auto* pair : obstaclePairs_)
+			{
+				if (!pair) continue;
+				DrawDebugRect(window, GetPipeHitbox(pair->GetTopSprite()), sf::Color::Red);
+				DrawDebugRect(window, GetPipeHitbox(pair->GetBottomSprite()), sf::Color::Red);
+			}
+		}
+
+		sf::FloatRect GetBirdHitbox() const
+		{
+			const sf::Vector2f size = {
+				Bird::SPRITE_SIZE.x * hitbox_.birdScale.x,
+				Bird::SPRITE_SIZE.y * hitbox_.birdScale.y
+			};
+			const sf::Vector2f center = bird_->GetSprite().getPosition();
+			return sf::FloatRect(center - size / 2.f, size);
+		}
+
+		// Sirve para el tubo de arriba y el de abajo. Inset = píxeles recortados por lado.
+		sf::FloatRect GetPipeHitbox(sf::Sprite& pipeSprite) const
+		{
+			const sf::FloatRect bounds = pipeSprite.getGlobalBounds();
+			const sf::Vector2f size = {
+				bounds.size.x,
+				bounds.size.y
+				// std::max(0.f, bounds.size.x),
+				// std::max(0.f, bounds.size.y)
+			};
+			return sf::FloatRect(bounds.position, size);
+		}
+
+		void CheckCollisions()
+		{
+			if (bGameOver) return; // Así el log sale una sola vez.
+
+			const sf::FloatRect birdBox = GetBirdHitbox();
+			
+			// Suelo.
+			if (birdBox.findIntersection(floor_->GetSprite().getGlobalBounds()))
+			{
+				OnBirdHit("floor");
+				return;
+			}
+
+			// Obstáculos (salta los nullptr, no cambia cuando agregues los otros 2 pares).
+			for (auto* pair : obstaclePairs_)
+			{
+				if (!pair) continue;
+
+				if (birdBox.findIntersection(GetPipeHitbox(pair->GetTopSprite())) ||
+					birdBox.findIntersection(GetPipeHitbox(pair->GetBottomSprite())))
+				{
+					OnBirdHit("obstacle");
+					return;
+				}
+			}
+		}
+
 	private:
 		static constexpr i32 NUM_OBSTACLE_PAIRS = 3;
 		Bird* bird_;
@@ -702,6 +796,30 @@ namespace FlappyBirdGame
 		std::array<ObstaclePair*, NUM_OBSTACLE_PAIRS> obstaclePairs_ = {};
 		u32 score_ = 0;
 		bool scored_ = false;// temp TODO:
+		bool bGameOver = false;
+		struct HitboxSettings
+		{
+			bool show = true;
+			bool showSpriteBounds = true;
+			sf::Vector2f birdScale = { 0.75f, 0.7f };
+		};
+		HitboxSettings hitbox_;
+
+		static void DrawDebugRect(sf::RenderWindow& window, const sf::FloatRect& rect, sf::Color color)
+		{
+			sf::RectangleShape shape(rect.size);
+			shape.setPosition(rect.position);
+			shape.setFillColor(sf::Color(color.r, color.g, color.b, 40));
+			shape.setOutlineColor(color);
+			shape.setOutlineThickness(-1.f); // Negativo: el contorno queda hacia adentro y no agranda la caja.
+			window.draw(shape);
+		}
+
+		void OnBirdHit(const char* what)
+		{
+			bGameOver = true;
+			std::cout << "COLLISION with " << what << " | final score: " << score_ << std::endl;
+		}
 	};
 }
 
