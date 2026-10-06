@@ -71,7 +71,7 @@ namespace RenderOrder
 	inline constexpr u32 TOP_UI = 1U;
 	inline constexpr u32 BOTTTOM = 4294967295U; // Last possible element.
 	inline constexpr u32 GAMEPLAY = BOTTTOM / 2U; // Halfway to both limits to give room for other possibilities.
-	inline constexpr u32 BACKGROUND = BOTTTOM * 3U / 4U; // Between GAMEPLAY AND BOTTOM. NOTE: this value was decided quickly, if you find a more suitable value don't hesitate to change this in the final "engine".
+	inline constexpr u32 BACKGROUND = BOTTTOM / 4U * 3U; // Between GAMEPLAY AND BOTTOM. NOTE: this value was decided quickly, if you find a more suitable value don't hesitate to change this in the final "engine".
 }
 
 class Entity
@@ -615,6 +615,70 @@ namespace FlappyBirdGame
 		static constexpr const char* TEXTURE_PATH = "Assets/pipe-green.png";
 	};
 
+	// Background that loops horizontally. Same technique as Floor: the texture repeats
+// and we slide the visible "window" (texture rect) over it.
+	class Background : public Entity
+	{
+	public:
+		explicit Background(const sf::Vector2u windowSize)
+			: Entity(MakeSprite(), ::RenderOrder::BACKGROUND)
+		{
+			// Scale so the texture height matches the window height; width follows proportionally.
+			scale_ = static_cast<f32>(windowSize.y) / TEXTURE_SIZE.y;
+			sprite_.setScale({ scale_, scale_ });
+
+			// Texture pixels needed to cover the window width (+1 so rounding never leaves a gap).
+			visibleWidth_ = static_cast<i32>(windowSize.x / scale_) + 1;
+			UpdateTextureRect(); // Defines the sprite size before World::Add() centers the origin.
+
+			// Add() centers the origin, so place the center such that the left edge sits at x = 0.
+			sprite_.setPosition({ visibleWidth_ * scale_ / 2.f, windowSize.y / 2.f });
+		}
+
+		void Update(const f32 deltaTime) override
+		{
+			// Content moves left -> the visible window of the texture moves right -> offset grows.
+			// SPEED is in screen pixels, so convert to texture pixels by dividing by the scale.
+			uvOffset_ += SPEED * deltaTime / scale_;
+
+			if (uvOffset_ >= TEXTURE_SIZE.x) // Texture repeats, restart accumulator.
+			{
+				uvOffset_ -= TEXTURE_SIZE.x;
+			}
+
+			UpdateTextureRect();
+		}
+
+	private:
+		void UpdateTextureRect()
+		{
+			sprite_.setTextureRect(sf::IntRect(
+				{ static_cast<i32>(uvOffset_), 0 },
+				{ visibleWidth_, static_cast<i32>(TEXTURE_SIZE.y) }
+			));
+		}
+
+		static sf::Sprite MakeSprite()
+		{
+			static sf::Texture texture = [] {
+				sf::Texture tex;
+				if (!tex.loadFromFile(TEXTURE_PATH))
+					throw std::runtime_error("Could not load BACKGROUND texture.");
+				tex.setRepeated(true);
+				return tex;
+				}();
+			return sf::Sprite(texture);
+		}
+
+		f32 uvOffset_ = 0.f;
+		f32 scale_ = 1.f;
+		i32 visibleWidth_ = 0;
+
+		static constexpr sf::Vector2f TEXTURE_SIZE = { 288.f, 512.f };
+		static constexpr f32 SPEED = 20.f; // Screen px/s. Slower than floor and pipes (120) to give depth.
+		static constexpr const char* TEXTURE_PATH = "Assets/background-day.png"; // Adjust to your file name.
+	};
+
 	class World : public ::World
 	{
 	public:
@@ -657,10 +721,8 @@ namespace FlappyBirdGame
 				AddAdditionalSprite(&obstaclePairs_[i]->GetBottomSprite(), FlappyBirdGame::RenderOrder::OBSTACLES);
 			}
 
-//			backgroundTexture_.loadFromFile(backgroundTexturePath_);
-//			backgroundTexture_.setRepeated(true);
-//			backgroundTexture_.setSmooth(true);
-//			background_.setTexture(backgroundTexture_);
+			// Create background.
+			Add<Background>(window_.getSize());
 		}
 
 		void Update(const f32 deltaTime) override
@@ -816,8 +878,6 @@ namespace FlappyBirdGame
 		u32 score_ = 0;
 		bool bGameOver_ = false;
 
-//		sf::Sprite background_;
-//		sf::Texture backgroundTexture_;
 		static constexpr std::string_view backgroundTexturePath_ = "Assets/background-day.png";
 	};
 } // namespace FlappyBirdGame
