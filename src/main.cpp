@@ -267,7 +267,9 @@ public:
 			// Draw.
 			
 			world_->RenderAll(window_);
+#ifdef _DEBUG
 			world_->RenderDebug(window_);
+#endif
 			ImGui::SFML::Render(window_);
 
 			window_.display();
@@ -499,11 +501,10 @@ namespace FlappyBirdGame
 		sf::Vector2f topOffset = sf::Vector2f();
 		sf::Vector2f bottomOffset = sf::Vector2f();
 
-		explicit ObstaclePair(const sf::Vector2f spawnPos) : Entity(MakeTempOrigin(), RenderOrder::OBSTACLES), top_(MakeSprite()), bottom_(MakeSprite())
+		explicit ObstaclePair(const sf::Vector2f spawnPos, const f32 loopLength) : Entity(MakeTempOrigin(), RenderOrder::OBSTACLES), top_(MakeSprite()), bottom_(MakeSprite()), loopLength_(loopLength)
 		{
-			// sprite_.setColor(sf::Color::Transparent); 
+			// sprite_.setColor(sf::Color::Transparent); TODO: uncomment this to hide the center sprite in the final game.
 			sprite_.setPosition(spawnPos);
-		//	sprite_.setScale({ 0.5f,0.5f }); // DESCALE TO make a smaller pivot and find center more easily.
 
 			const auto centerOrigin = sf::Vector2f(top_.getLocalBounds().size.x / 2, top_.getLocalBounds().size.y / 2);
 			top_.setOrigin(centerOrigin); // Both sprites use the same texture.
@@ -515,19 +516,24 @@ namespace FlappyBirdGame
 		}
 
 		void Update(const f32 deltaTime) override
-		{
-			const auto currentPos = sprite_.getPosition();
+		{			
 			sprite_.move({ speedX * deltaTime, 0.f });
+			CheckResetObstaclePair();
+
+			const auto currentPos = sprite_.getPosition();
 			top_.setPosition(currentPos + topOffset);
 			bottom_.setPosition(currentPos + bottomOffset);
-
-			if (sprite_.getPosition().x + sprite_.getLocalBounds().size.x < 0)
+		}
+		
+		void CheckResetObstaclePair()
+		{
+			const f32 halfPipeWidth = top_.getLocalBounds().size.x / 2.f;
+			if (sprite_.getPosition().x < -halfPipeWidth)
 			{
-				sprite_.setPosition({ 480.f, sprite_.getPosition().y });
+				sprite_.move({ loopLength_, 0.f }); // At the end of the line.
 				RandomizeSpritesY();
 			}
 		}
-		
 
 		void PlaceBottomRandomY()
 		{
@@ -536,6 +542,7 @@ namespace FlappyBirdGame
 			constexpr auto LOWER_POS = 405.f;
 			bottomOffset.y = Random(UPPER_POS, LOWER_POS);
 		}
+
 		void PlaceTopRandomY()
 		{
 			// SFML y coords... inverted...
@@ -552,6 +559,7 @@ namespace FlappyBirdGame
 				PlaceTopRandomY();
 			} while (!PipesInReasonableDistance());
 		}
+
 
 		// NOTE: Unfortunately because of the height of the pipes asset, the Top obstacle lowest point is -140, so in gameplay it doesnt look so random and gives the illusion that the obstacles are usually in the top zone of the screen.
 		bool PipesInReasonableDistance() const
@@ -572,7 +580,7 @@ namespace FlappyBirdGame
 
 		inline sf::Sprite& GetTopSprite() { return top_; }
 		inline sf::Sprite& GetBottomSprite() { return bottom_; }
-
+		static f32 GetPipeWidth() { return MakeSprite().getLocalBounds().size.x; }
 	private:
 		// For faster iteration. TODO: remove.
 		static sf::Sprite MakeTempOrigin()
@@ -602,7 +610,7 @@ namespace FlappyBirdGame
 
 		sf::Sprite top_;
 		sf::Sprite bottom_;
-
+		f32 loopLength_;
 
 		static constexpr const char* TEXTURE_PATH = "Assets/pipe-green.png";
 	};
@@ -610,6 +618,10 @@ namespace FlappyBirdGame
 	class World : public ::World
 	{
 	public:
+		static constexpr i32 NUM_OBSTACLE_PAIRS = 3;
+		static constexpr i32 MAX_VISIBLE_PAIRS = 2; // The rest waits outside the window, to the right.
+		static_assert(NUM_OBSTACLE_PAIRS > MAX_VISIBLE_PAIRS, "At least one pair must wait outside the window.");
+
 		World(sf::RenderWindow& window) : ::World(window)
 		{
 			// I do not think it is necessary for this small game to implement an Init() approach.
@@ -630,19 +642,25 @@ namespace FlappyBirdGame
 			floor_ = Add<Floor>();
 
 			// Create obstacles.
-			sf::Vector2f windowBorder = sf::Vector2f(window_.getSize()) / 2.f; // Right border, center of the window.
-			windowBorder.x = window.getSize().x;
-			const f32 OBSTACLE_PAIR_SPACING = windowBorder.x / NUM_OBSTACLE_PAIRS; // Spacing between each pair of obstacles.
+			const f32 windowWidth = static_cast<f32>(window_.getSize().x);
+			// A pipe is still visible while its center is within half a pipe width of the edge, hence the addition of the pipe width.
+			const f32 pairSpacing = (windowWidth + ObstaclePair::GetPipeWidth()) / MAX_VISIBLE_PAIRS;
+			const f32 loopLength = pairSpacing * NUM_OBSTACLE_PAIRS;
+
 			for (i32 i = 0; i < NUM_OBSTACLE_PAIRS; i++)
 			{
-				const auto PosWithSpacing = windowBorder + sf::Vector2f(i * OBSTACLE_PAIR_SPACING, 0.f);
-				obstaclePairs_[i] = Add<ObstaclePair>(PosWithSpacing);
+				const sf::Vector2f spawnPos = { windowWidth + i * pairSpacing, static_cast<f32>(window_.getSize().y) / 2.f };
+				obstaclePairs_[i] = Add<ObstaclePair>(spawnPos, loopLength);
 
 				// Add sprites to draw order pipeline.
 				AddAdditionalSprite(&obstaclePairs_[i]->GetTopSprite(), FlappyBirdGame::RenderOrder::OBSTACLES);
 				AddAdditionalSprite(&obstaclePairs_[i]->GetBottomSprite(), FlappyBirdGame::RenderOrder::OBSTACLES);
 			}
 
+//			backgroundTexture_.loadFromFile(backgroundTexturePath_);
+//			backgroundTexture_.setRepeated(true);
+//			backgroundTexture_.setSmooth(true);
+//			background_.setTexture(backgroundTexture_);
 		}
 
 		void Update(const f32 deltaTime) override
@@ -650,22 +668,16 @@ namespace FlappyBirdGame
 			::World::Update(deltaTime);
 			CheckCollisions();
 
+			static size_t nextObstacleIndex = 0;
+			if (bGameOver_) return;
 
-			// Score system. TODO: should be placed in a function.
-			for (const auto& obstPair : obstaclePairs_)
+			auto* nextObstacle = obstaclePairs_[nextObstacleIndex];
+
+			if (nextObstacle->GetSprite().getPosition().x < bird_->GetSprite().getPosition().x) // Could use [[unlikely]] but I don't think it is necessary.
 			{
-				if (!obstPair) continue;
-
-				if (obstPair->GetSprite().getPosition().x < bird_->GetSprite().getPosition().x && !scored_)
-				{
-					score_++;
-					scored_ = true;
-					std::cout << "SCORE: " << score_ << std::endl;
-				}
-				if (obstPair->GetSprite().getPosition().x > window_.getSize().x / 2)
-				{
-					scored_ = false;
-				}
+				score_++;
+				std::cout << "SCORE: " << score_ << std::endl;
+				nextObstacleIndex = (nextObstacleIndex + 1) % NUM_OBSTACLE_PAIRS; // Next obstacle pair in circular manner.
 			}
 		}
 
@@ -748,7 +760,7 @@ namespace FlappyBirdGame
 
 		void CheckCollisions()
 		{
-			if (bGameOver) return; // Log only once.
+			if (bGameOver_) return; // Log only once.
 
 			const sf::FloatRect birdBox = GetBirdHitbox();
 			
@@ -774,7 +786,6 @@ namespace FlappyBirdGame
 		}
 
 	private:
-		static constexpr i32 NUM_OBSTACLE_PAIRS = 3;
 		Bird* bird_;
 		Floor* floor_;
 		std::array<ObstaclePair*, NUM_OBSTACLE_PAIRS> obstaclePairs_ = {};
@@ -799,12 +810,15 @@ namespace FlappyBirdGame
 
 		void OnBirdHit(const char* what)
 		{
-			bGameOver = true;
+			bGameOver_ = true;
 			std::cout << "COLLISION with " << what << " | final score: " << score_ << std::endl;
 		}
 		u32 score_ = 0;
-		bool scored_ = false;// temp TODO:
-		bool bGameOver = false;
+		bool bGameOver_ = false;
+
+//		sf::Sprite background_;
+//		sf::Texture backgroundTexture_;
+		static constexpr std::string_view backgroundTexturePath_ = "Assets/background-day.png";
 	};
 } // namespace FlappyBirdGame
 
