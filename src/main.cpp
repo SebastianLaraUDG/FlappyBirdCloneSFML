@@ -8,12 +8,19 @@
 #include <type_traits>
 #include <vector>
 #include <array>
+#include <unordered_map>
 #include <iostream>
 
 /*
 * Known "issues":
 * // NOTE: Unfortunately because of the height of the pipes asset, the Top obstacle lowest point is -140, so in gameplay it doesnt look so random and gives the illusion that the obstacles are usually in the top zone of the screen.
 */
+
+/*
+* TODO: Engine
+* - Audio system.
+*/
+
 
 /*
 * Flappy bird:
@@ -421,7 +428,7 @@ namespace FlappyBirdGame
 
 		// Gameplay.
 		static constexpr f32 GRAVITY = 900.f;
-		static constexpr f32 FLAP_IMPULSE = -350.f;
+		static constexpr f32 FLAP_IMPULSE = -300.f;
 
 		// Sprites.
 	public:
@@ -686,6 +693,53 @@ namespace FlappyBirdGame
 		static constexpr const char* TEXTURE_PATH = "Assets/background-day.png"; // Adjust to your file name.
 	};
 
+	// Inside FlappyBirdGame namespace because it's a quick solution for this game, not designed to be a scalable audio system.
+	class SFXManager
+	{
+	public:
+		bool Load(const std::string& name, const std::string& path)
+		{
+			auto buffer = std::make_unique<sf::SoundBuffer>();
+
+			if (!buffer->loadFromFile(path))
+			{
+				std::cerr << "Failed to load SFX: "
+					<< path << '\n';
+				return false;
+			}
+
+			sounds_.emplace(name,
+				SoundData{
+					std::move(buffer),
+					nullptr
+				});
+
+			sounds_.at(name).sound =
+				std::make_unique<sf::Sound>(*sounds_.at(name).buffer);
+
+			return true;
+		}
+
+		void Play(const std::string& name)
+		{
+			auto it = sounds_.find(name);
+
+			if (it == sounds_.end())
+				return;
+
+			it->second.sound->play();
+		}
+
+	private:
+		struct SoundData
+		{
+			std::unique_ptr<sf::SoundBuffer> buffer;
+			std::unique_ptr<sf::Sound> sound;
+		};
+
+		std::unordered_map<std::string, SoundData> sounds_;
+	};
+
 	class World : public ::World
 	{
 	public:
@@ -693,8 +747,7 @@ namespace FlappyBirdGame
 		static constexpr i32 MAX_VISIBLE_PAIRS = 2; // The rest waits outside the window, to the right.
 		static_assert(NUM_OBSTACLE_PAIRS > MAX_VISIBLE_PAIRS, "At least one pair must wait outside the window.");
 
-		World(sf::RenderWindow& window) : ::World(window),
-			sound_(soundBuffer_)
+		World(sf::RenderWindow& window) : ::World(window)
 		{
 			// I do not think it is necessary for this small game to implement an Init() approach.
 
@@ -732,7 +785,10 @@ namespace FlappyBirdGame
 			// Create background.
 			Add<Background>(window_.getSize());
 
-			soundBuffer_.loadFromFile(SFX_SCORE_PATH);
+			// SFX loading.
+			sfxManager_.Load("SCORE", SFX_SCORE_PATH.data());
+			sfxManager_.Load("HIT",	SFX_HIT_PATH.data());
+			sfxManager_.Load("DIE", SFX_DIE_PATH.data());
 		}
 
 		void Update(const f32 deltaTime) override
@@ -749,8 +805,9 @@ namespace FlappyBirdGame
 			{
 				score_++;
 				std::cout << "SCORE: " << score_ << std::endl;
+				sfxManager_.Play("SCORE");
 				nextObstacleIndex = (nextObstacleIndex + 1) % NUM_OBSTACLE_PAIRS; // Next obstacle pair in circular manner.
-				sound_.play();
+
 			}
 		}
 
@@ -853,6 +910,7 @@ namespace FlappyBirdGame
 					birdBox.findIntersection(GetPipeHitbox(pair->GetBottomSprite())))
 				{
 					OnBirdHit("obstacle");
+					sfxManager_.Play("DIE");
 					return;
 				}
 			}
@@ -885,13 +943,18 @@ namespace FlappyBirdGame
 		{
 			bGameOver_ = true;
 			std::cout << "COLLISION with " << what << " | final score: " << score_ << std::endl;
+			sfxManager_.Play("HIT");
 		}
+
+		
 		u32 score_ = 0;
 		bool bGameOver_ = false;
+		SFXManager sfxManager_; // I think an audio system should be placed in the application, instead of the world, but for this small game it is not necessary.
+		
+		static constexpr std::string_view SFX_SCORE_PATH = "Assets/sfx_point.wav";
+		static constexpr std::string_view SFX_HIT_PATH = "Assets/sfx_hit.wav";
+		static constexpr std::string_view SFX_DIE_PATH = "Assets/sfx_die.wav"; // This audio is played when the bird dies crashing agains an obstacle.
 
-		sf::SoundBuffer soundBuffer_;
-		sf::Sound sound_;
-		static constexpr const char* SFX_SCORE_PATH = "Assets/sfx_point.wav";
 		static constexpr std::string_view backgroundTexturePath_ = "Assets/background-day.png";
 	};
 } // namespace FlappyBirdGame
