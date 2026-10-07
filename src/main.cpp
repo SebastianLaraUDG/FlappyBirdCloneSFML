@@ -9,6 +9,7 @@
 #include <vector>
 #include <array>
 #include <unordered_map>
+#include <fstream>
 #include <iostream>
 
 /*
@@ -740,6 +741,70 @@ namespace FlappyBirdGame
 		std::unordered_map<std::string, SoundData> sounds_;
 	};
 
+	// Same as SFXManager, this is a quick solution for this game, not designed to be a scalable score system.
+	class ScoreManager
+	{
+	public:
+		explicit ScoreManager(const std::string& topScoreFilePath = "topScore.dat") : topScoreFilePath_(std::move(topScoreFilePath))
+		{
+			LoadTopScore();
+		}
+
+		void AddPoint()
+		{
+			score_++;
+			if (score_ > topScore_)
+			{
+				topScore_ = score_;
+				bTopScoreChanged_ = true;
+			}
+		}
+
+		void ResetScore()
+		{
+			score_ = 0;
+			bTopScoreChanged_ = false;
+		}
+
+		void SaveTopScore() const
+		{
+			if (!bTopScoreChanged_)
+			{
+				return;
+			}
+
+			std::ofstream file(topScoreFilePath_, std::ios::binary);
+			if (file.is_open())
+			{
+				const auto topScoreAsString = std::to_string(topScore_);
+				file.write(topScoreAsString.c_str(), sizeof(topScore_));
+			}
+		}
+
+		void LoadTopScore()
+		{
+			std::ifstream file(topScoreFilePath_, std::ios::binary);
+			if (file.is_open())
+			{
+				file.read(reinterpret_cast<char*>(&topScore_), sizeof(topScore_));
+			}
+			else
+			{
+				topScore_ = 0;
+			}
+		}
+
+		[[nodiscard]] u32 GetCurrentScore() const { return score_; }
+		[[nodiscard]] u32 GetHighScore() const { return topScore_; }
+		[[nodiscard]] bool IsNewHighScore() const { return bTopScoreChanged_; }
+
+	private:
+		u32 score_ = 0;
+		u32 topScore_ = 0;
+		std::string topScoreFilePath_;
+		bool bTopScoreChanged_ = false;
+	};
+
 	class World : public ::World
 	{
 	public:
@@ -803,8 +868,9 @@ namespace FlappyBirdGame
 
 			if (nextObstacle->GetSprite().getPosition().x < bird_->GetSprite().getPosition().x) // Could use [[unlikely]] but I don't think it is necessary.
 			{
-				score_++;
-				std::cout << "SCORE: " << score_ << std::endl;
+				scoreManager_.AddPoint();
+				std::cout << "SCORE: " << scoreManager_.GetCurrentScore()
+					<< " | HIGH SCORE: " << scoreManager_.GetHighScore() << std::endl;
 				sfxManager_.Play("SCORE");
 				nextObstacleIndex = (nextObstacleIndex + 1) % NUM_OBSTACLE_PAIRS; // Next obstacle pair in circular manner.
 
@@ -942,14 +1008,16 @@ namespace FlappyBirdGame
 		void OnBirdHit(const char* what)
 		{
 			bGameOver_ = true;
-			std::cout << "COLLISION with " << what << " | final score: " << score_ << std::endl;
+			scoreManager_.SaveTopScore();
+			std::cout << "COLLISION with " << what
+				<< " | Final Score: " << scoreManager_.GetCurrentScore()
+				<< " | Best: " << scoreManager_.GetHighScore() << std::endl;
 			sfxManager_.Play("HIT");
 		}
 
-		
-		u32 score_ = 0;
 		bool bGameOver_ = false;
 		SFXManager sfxManager_; // I think an audio system should be placed in the application, instead of the world, but for this small game it is not necessary.
+		ScoreManager scoreManager_;
 		
 		static constexpr std::string_view SFX_SCORE_PATH = "Assets/sfx_point.wav";
 		static constexpr std::string_view SFX_HIT_PATH = "Assets/sfx_hit.wav";
