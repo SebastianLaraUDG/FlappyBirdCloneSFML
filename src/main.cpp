@@ -1,4 +1,5 @@
 #include <SFML/Graphics.hpp>
+#include <SFML/Audio.hpp>
 #include "imgui.h"
 #include "imgui-SFML.h"
 #include <cmath>
@@ -303,7 +304,8 @@ namespace FlappyBirdGame
 	{
 	public:
 		
-		Bird() : Entity(MakeSprite())
+		Bird() : Entity(MakeSprite()),
+			soundBuffer_("Assets/sfx_wing.wav"), sound_(soundBuffer_)
 		{
 			sprite_.setTextureRect(sf::IntRect(
 				{ 0,0 },
@@ -340,8 +342,7 @@ namespace FlappyBirdGame
 			// Update position.
 
 			const auto oldY = sprite_.getPosition().y;
-			const auto newY = oldY + velY_ * deltaTime * bChangesVerticalVelocity;
-			// TODO: temporary solution to avoid bird falling. this is to improve the debug of the obstacles.
+			const auto newY = oldY + velY_ * deltaTime * bChangesVerticalVelocity; // TODO: temporary solution to avoid bird falling. this is to speed up the debug of the obstacles.
 
 			sprite_.setPosition({
 				sprite_.getPosition().x,
@@ -352,7 +353,9 @@ namespace FlappyBirdGame
 
 		void Flap()
 		{
+			// TODO: handle a case when the player lost and the bird should not be able to flap anymore.
 			velY_ = FLAP_IMPULSE;
+			sound_.play();
 		}
 
 
@@ -428,6 +431,10 @@ namespace FlappyBirdGame
 
 		// Animation.
 		static constexpr f32 UPDATE_ANIM_SPAN = 0.1f;
+		
+		// SFX.
+		sf::SoundBuffer soundBuffer_;
+		sf::Sound sound_;
 	};
 
 	
@@ -686,7 +693,8 @@ namespace FlappyBirdGame
 		static constexpr i32 MAX_VISIBLE_PAIRS = 2; // The rest waits outside the window, to the right.
 		static_assert(NUM_OBSTACLE_PAIRS > MAX_VISIBLE_PAIRS, "At least one pair must wait outside the window.");
 
-		World(sf::RenderWindow& window) : ::World(window)
+		World(sf::RenderWindow& window) : ::World(window),
+			sound_(soundBuffer_)
 		{
 			// I do not think it is necessary for this small game to implement an Init() approach.
 
@@ -723,6 +731,8 @@ namespace FlappyBirdGame
 
 			// Create background.
 			Add<Background>(window_.getSize());
+
+			soundBuffer_.loadFromFile(SFX_SCORE_PATH);
 		}
 
 		void Update(const f32 deltaTime) override
@@ -740,6 +750,7 @@ namespace FlappyBirdGame
 				score_++;
 				std::cout << "SCORE: " << score_ << std::endl;
 				nextObstacleIndex = (nextObstacleIndex + 1) % NUM_OBSTACLE_PAIRS; // Next obstacle pair in circular manner.
+				sound_.play();
 			}
 		}
 
@@ -878,6 +889,9 @@ namespace FlappyBirdGame
 		u32 score_ = 0;
 		bool bGameOver_ = false;
 
+		sf::SoundBuffer soundBuffer_;
+		sf::Sound sound_;
+		static constexpr const char* SFX_SCORE_PATH = "Assets/sfx_point.wav";
 		static constexpr std::string_view backgroundTexturePath_ = "Assets/background-day.png";
 	};
 } // namespace FlappyBirdGame

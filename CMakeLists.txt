@@ -30,6 +30,7 @@ FetchContent_Declare(
     EXCLUDE_FROM_ALL
 )
 
+set(SFML_BUILD_AUDIO ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(SFML imgui)
 
 # Evita que imgui-sfml llame find_package(SFML) — usará directamente
@@ -48,6 +49,7 @@ target_compile_definitions(main PRIVATE SFML_STATIC)
 
 target_link_libraries(main PRIVATE
     SFML::Graphics
+    SFML::Audio
     ImGui-SFML::ImGui-SFML
 )
 
