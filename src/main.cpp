@@ -745,7 +745,7 @@ namespace FlappyBirdGame
 	class ScoreManager
 	{
 	public:
-		explicit ScoreManager(const std::string& topScoreFilePath = "topScore.dat") : topScoreFilePath_(std::move(topScoreFilePath))
+		explicit ScoreManager(std::string topScoreFilePath = "topScore.dat") : topScoreFilePath_(std::move(topScoreFilePath))
 		{
 			LoadTopScore();
 		}
@@ -763,30 +763,33 @@ namespace FlappyBirdGame
 		void ResetScore()
 		{
 			score_ = 0;
-			bTopScoreChanged_ = false;
 		}
 
-		void SaveTopScore() const
+		void SaveTopScore()
 		{
 			if (!bTopScoreChanged_)
 			{
 				return;
 			}
-
-			std::ofstream file(topScoreFilePath_, std::ios::binary);
+			// LEARNING NOTE: The following implementation writes the top score as a human readable number,
+			// when using std::ios::binary, the top score will be written as a binary format (it's supposedly the perfect format to prevent cheating).
+			std::ofstream file(topScoreFilePath_);//, std::ios::binary);
 			if (file.is_open())
 			{
-				const auto topScoreAsString = std::to_string(topScore_);
-				file.write(topScoreAsString.c_str(), sizeof(topScore_));
+				// file.write(reinterpret_cast<const char*>(&topScore_), sizeof(topScore_));
+				file << topScore_;
+				bTopScoreChanged_ = false;
 			}
 		}
 
 		void LoadTopScore()
 		{
-			std::ifstream file(topScoreFilePath_, std::ios::binary);
-			if (file.is_open())
+			std::ifstream file(topScoreFilePath_);//, std::ios::binary);
+			u32 loadedScore = 0;
+
+			if (file.is_open() && (file >> loadedScore))// file.read(reinterpret_cast<char*>(&loadedScore), sizeof(topScore_)))
 			{
-				file.read(reinterpret_cast<char*>(&topScore_), sizeof(topScore_));
+				topScore_ = loadedScore;
 			}
 			else
 			{
