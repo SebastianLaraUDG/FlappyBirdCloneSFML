@@ -109,6 +109,65 @@ private:
 	u32 renderOrder_; // TODO: When checking memory layout of classes that derive from Entity, it seems that after this variable there is a 4-byte padding, so the next variable will be aligned to 8 bytes. This is not a problem for this project, but it is something to keep in mind for future projects.
 };
 
+// Base of everything drawn in screen space (score, buttons, panels...).
+// TODO: Of all aspects of 2D game dev I think UI and screen space are the areas where I have the least knowledge and the greatest room for improvement.
+// So even though this implementation may work for now, it's very likely that this module will change in the future.
+class UIElement
+{
+public:
+	virtual ~UIElement() = default;
+
+	virtual void Update(const f32 deltaTime) {}
+	virtual void Draw(sf::RenderTarget& target) const = 0;
+
+	void SetVisible(const bool visible) { bVisible_ = visible; }
+	bool IsVisible() const { return bVisible_; }
+
+private:
+	bool bVisible_ = true;
+};
+
+// A group of UI elements that is shown / hidden as a whole (HUD, start screen, game over...).
+class UIScreen
+{
+public:
+	virtual ~UIScreen() = default;
+
+	template<typename T, typename... Args>
+	T* Add(Args&&... args)
+	{
+		static_assert(std::is_base_of_v<UIElement, T>, "T must derive from UIElement.");
+		auto element = std::make_unique<T>(std::forward<Args>(args)...);
+		T* ptr = element.get();
+		elements_.push_back(std::move(element));
+		return ptr;
+	}
+
+	virtual void Update(const f32 deltaTime)
+	{
+		if (!bVisible_) return;
+		for (auto& element : elements_)
+			element->Update(deltaTime);
+	}
+
+	void Draw(sf::RenderTarget& target) const
+	{
+		if (!bVisible_) return;
+		for (const auto& element : elements_)
+			if (element->IsVisible())
+				element->Draw(target);
+	}
+
+	void Show() { bVisible_ = true; }
+	void Hide() { bVisible_ = false; }
+	bool IsVisible() const { return bVisible_; }
+
+private:
+	std::vector<std::unique_ptr<UIElement>> elements_;
+	bool bVisible_ = true;
+};
+
+
 class World
 {
 public:
@@ -126,12 +185,27 @@ public:
 		return ptr;
 	}
 
+	// 1. New method, next to Add<T>():
+	template<typename T, typename... Args>
+	T* AddScreen(Args&&... args)
+	{
+		static_assert(std::is_base_of_v<UIScreen, T>, "T must derive from UIScreen.");
+		auto screen = std::make_unique<T>(std::forward<Args>(args)...);
+		T* ptr = screen.get();
+		screens_.push_back(std::move(screen));
+		return ptr;
+	}
+
 	// Updates all entities.
 	virtual void Update(const f32 deltaTime)
 	{
 		for (auto& ent : entities_)
 		{
 			ent->Update(deltaTime);
+		}
+		for (auto& screen : screens_)
+		{
+			screen->Update(deltaTime);
 		}
 	}
 
@@ -187,7 +261,15 @@ public:
 			window.draw(*item.sprite);
 			// std::cout << item.depth << std::endl;
 		}
-		
+
+		// UI elements.
+		const sf::View previousView = window.getView();
+		window.setView(window.getDefaultView());
+		for (const auto& screen : screens_)
+		{
+			screen->Draw(window);
+		}
+		window.setView(previousView);
 	}
 
 	// Registra un sprite extra (no perteneciente al sprite_ base de una Entity)
@@ -203,7 +285,8 @@ public:
 protected:
 	sf::RenderWindow& window_; // Easy access to window to call getSize(), etc.
 	std::vector<std::unique_ptr<Entity>> entities_;
-	std::vector<std::pair<const sf::Sprite*, u32>> additionalSprites_; // Default render loop renders all entities' sprites, but in some cases an entity has several sprites to render.
+	std::vector<std::unique_ptr<UIScreen>> screens_;
+	std::vector<std::pair<const sf::Sprite*, u32>> additionalSprites_; // Default render loop renders all entities' sprites, but in some cases an entity has several sprites to render
 };
 
 template<typename TWorld>
@@ -798,7 +881,7 @@ namespace FlappyBirdGame
 		}
 
 		[[nodiscard]] u32 GetCurrentScore() const { return score_; }
-		[[nodiscard]] u32 GetHighScore() const { return topScore_; }
+		[[nodiscard]] u32 GetTopScore() const { return topScore_; }
 		[[nodiscard]] bool IsNewHighScore() const { return bTopScoreChanged_; }
 
 	private:
@@ -806,6 +889,89 @@ namespace FlappyBirdGame
 		u32 topScore_ = 0;
 		std::string topScoreFilePath_;
 		bool bTopScoreChanged_ = false;
+	};
+
+	// Draws a number with this game's digit spritesheet.
+	class ScoreNumber : public UIElement
+	{
+	public:
+		// 'anchor': x is the horizontal center of the number, y is the top of the digits.
+		explicit ScoreNumber(const sf::Vector2f anchor) : anchor_(anchor)
+		{
+			Rebuild();
+		}
+
+		void SetValue(const u32 value)
+		{
+			if (value == value_) return; // Only rebuild when it changes.
+			value_ = value;
+			Rebuild();
+		}
+
+		void Draw(sf::RenderTarget& target) const override
+		{
+			for (const auto& digit : digits_)
+				target.draw(digit);
+		}
+
+	private:
+		void Rebuild()
+		{
+			const std::string text = std::to_string(value_);
+
+			// Total width first, to be able to center.
+			f32 totalWidth = SPACING * static_cast<f32>(text.size() - 1);
+			for (const char c : text)
+				totalWidth += static_cast<f32>(GetDigitRect(c - '0').size.x);
+
+			f32 x = anchor_.x - totalWidth / 2.f;
+
+			digits_.clear();
+			digits_.reserve(text.size());
+			for (const char c : text)
+			{
+				const sf::IntRect rect = GetDigitRect(c - '0');
+				sf::Sprite& digit = digits_.emplace_back(GetTexture());
+				digit.setTextureRect(rect);
+				digit.setPosition({ x, anchor_.y });
+				x += static_cast<f32>(rect.size.x) + SPACING;
+			}
+		}
+
+		// The ONLY place that knows the layout of the spritesheet.
+		static sf::IntRect GetDigitRect(const i32 digit)
+		{
+			return sf::IntRect({ digit * DIGIT_SIZE.x, 0 }, DIGIT_SIZE);
+		}
+
+		static const sf::Texture& GetTexture()
+		{
+			static const sf::Texture texture(TEXTURE_PATH);
+			return texture;
+		}
+
+		sf::Vector2f anchor_;
+		u32 value_ = 0;
+		std::vector<sf::Sprite> digits_;
+
+		// Layout of the digit spritesheet.
+		static constexpr const char* TEXTURE_PATH = "Assets/score_numbers_spritesheet.png";
+		static constexpr sf::Vector2i DIGIT_SIZE = { 24, 36 }; // 10 digits in one row, same size each.
+		static constexpr f32 SPACING = 2.f;                    // Pixels between digits.
+	};
+
+	class HUDScreen : public UIScreen
+	{
+	public:
+		explicit HUDScreen(const sf::Vector2u windowSize)
+		{
+			score_ = Add<ScoreNumber>(sf::Vector2f{ windowSize.x / 2.f, 40.f }); // Top center. Adjust y to taste.
+		}
+
+		void SetScore(const u32 score) { score_->SetValue(score); }
+
+	private:
+		ScoreNumber* score_ = nullptr;
 	};
 
 	class World : public ::World
@@ -857,6 +1023,9 @@ namespace FlappyBirdGame
 			sfxManager_.Load("SCORE", SFX_SCORE_PATH.data());
 			sfxManager_.Load("HIT",	SFX_HIT_PATH.data());
 			sfxManager_.Load("DIE", SFX_DIE_PATH.data());
+
+			// HUD.
+			hud_ = AddScreen<HUDScreen>(window_.getSize());
 		}
 
 		void Update(const f32 deltaTime) override
@@ -872,8 +1041,9 @@ namespace FlappyBirdGame
 			if (nextObstacle->GetSprite().getPosition().x < bird_->GetSprite().getPosition().x) // Could use [[unlikely]] but I don't think it is necessary.
 			{
 				scoreManager_.AddPoint();
+				hud_->SetScore(scoreManager_.GetCurrentScore());
 				std::cout << "SCORE: " << scoreManager_.GetCurrentScore()
-					<< " | HIGH SCORE: " << scoreManager_.GetHighScore() << std::endl;
+					<< " | TOP SCORE: " << scoreManager_.GetTopScore() << std::endl;
 				sfxManager_.Play("SCORE");
 				nextObstacleIndex = (nextObstacleIndex + 1) % NUM_OBSTACLE_PAIRS; // Next obstacle pair in circular manner.
 
@@ -1014,13 +1184,15 @@ namespace FlappyBirdGame
 			scoreManager_.SaveTopScore();
 			std::cout << "COLLISION with " << what
 				<< " | Final Score: " << scoreManager_.GetCurrentScore()
-				<< " | Best: " << scoreManager_.GetHighScore() << std::endl;
+				<< " | Best: " << scoreManager_.GetTopScore() << std::endl;
 			sfxManager_.Play("HIT");
 		}
 
 		bool bGameOver_ = false;
 		SFXManager sfxManager_; // I think an audio system should be placed in the application, instead of the world, but for this small game it is not necessary.
 		ScoreManager scoreManager_;
+
+		HUDScreen* hud_ = nullptr;
 		
 		static constexpr std::string_view SFX_SCORE_PATH = "Assets/sfx_point.wav";
 		static constexpr std::string_view SFX_HIT_PATH = "Assets/sfx_hit.wav";
